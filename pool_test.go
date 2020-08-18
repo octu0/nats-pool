@@ -237,6 +237,13 @@ func TestClosedConn(t *testing.T) {
 	if ok != true {
 		t.Errorf("free cap")
 	}
+	nc1, err1 := p.Get()
+	if err1 != nil {
+		t.Errorf(err1.Error())
+	}
+	if nc1.IsConnected() != true {
+		t.Errorf("new conn is connected")
+	}
 }
 func TestLeakSubs(t *testing.T) {
 	ns, err := testStartNatsd(4222)
