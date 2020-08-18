@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/octu0/nats-pool)](https://goreportcard.com/report/github.com/octu0/nats-pool)
 [![Releases](https://img.shields.io/github/v/release/octu0/nats-pool)](https://github.com/octu0/nats-pool)
 
-`nats-pool` connection pooling for [nats.io](http://nats.io/)
+`nats-pool` connection pooling for [nats.go](https://github.com/nats-io/nats.go)
 
 ## Installation
 
