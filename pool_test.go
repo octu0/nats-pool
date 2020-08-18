@@ -238,3 +238,43 @@ func TestClosedConn(t *testing.T) {
 		t.Errorf("free cap")
 	}
 }
+func TestLeakSubs(t *testing.T) {
+	ns, err := testStartNatsd(4222)
+	if err != nil {
+		panic(err)
+	}
+	defer ns.Shutdown()
+
+	url := fmt.Sprintf("nats://%s", ns.Addr().String())
+	p := New(10, url)
+	nc, err := p.Get()
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+	sub, err := nc.Subscribe("foo.bar", func(msg *nats.Msg) {
+		if "hello world" != string(msg.Data) {
+			t.Errorf("data == 'hello world': %v", msg.Data)
+		}
+	})
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+	if nc.NumSubscriptions() != 1 {
+		t.Errorf("sub 1")
+	}
+
+	nc.Publish("foo.bar", []byte("hello world"))
+
+	p.Put(nc)
+
+	if nc.NumSubscriptions() != 1 {
+		t.Errorf("leaked sub")
+	}
+	if sub.IsValid() != true {
+		t.Errorf("released but keep connection")
+	}
+	sub.Unsubscribe()
+	if nc.NumSubscriptions() != 0 {
+		t.Errorf("unscribed")
+	}
+}
