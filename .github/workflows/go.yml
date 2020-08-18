@@ -1,0 +1,26 @@
+name: Test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.12.x, 1.13.x, 1.14.x]
+        platform: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - name: Install Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ matrix.go-version }}
+      id: go
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Get dependencies
+      run: |
+        go get -v -t github.com/nats-io/nats.go/
+        go get -v -t github.com/nats-io/nats-server/server
+
+    - name: Test
+      run: go test -v ./
