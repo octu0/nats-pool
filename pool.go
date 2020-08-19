@@ -4,6 +4,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// ConnPool implements pool of *nats.Conn of a bounded channel
 type ConnPool struct {
 	pool    chan *nats.Conn
 	url     string
@@ -35,7 +36,10 @@ func (p *ConnPool) Get() (*nats.Conn, error) {
 	case nc = <-p.pool:
 		// reuse exists pool
 		if nc.IsConnected() != true {
-			// disconnected conn to create new *nats.Conn
+			// Close to be sure
+			nc.Close()
+
+			// disconnected conn, create new *nats.Conn
 			nc, err = p.connect()
 		}
 	default:
