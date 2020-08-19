@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	// 100 connection pool
+	// 100 connections pool
 	connPool = pool.New(100, "nats://localhost:4222",
 		nats.NoEcho(),
 		nats.Name("client/1.0"),
@@ -33,17 +33,17 @@ var (
 )
 
 func main() {
-	conn, err := connPool.Get()
+	nc, err := connPool.Get()
 	if err != nil {
 		panic(err)
 	}
+	// return buffer to pool
+	defer connPool.Put(nc)
 	:
-	conn.Subscribe("subject.a.b.c", func(msg *nats.Msg) {
+	nc.Subscribe("subject.a.b.c", func(msg *nats.Msg) {
 		...
 	})
-	:
-	// return buffer to pool
-	connPool.Put(conn)
+	nc.Publish("foo.bar", []byte("hello world"))
 }
 ```
 
