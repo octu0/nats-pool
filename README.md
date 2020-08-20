@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	// return buffer to pool
+	// release *nats.Conn to pool
 	defer connPool.Put(nc)
 	:
 	nc.Subscribe("subject.a.b.c", func(msg *nats.Msg) {
