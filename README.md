@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	// return buffer to pool
+	// release *nats.Conn to pool
 	defer connPool.Put(nc)
 	:
 	nc.Subscribe("subject.a.b.c", func(msg *nats.Msg) {
@@ -45,6 +45,21 @@ func main() {
 	})
 	nc.Publish("foo.bar", []byte("hello world"))
 }
+```
+
+## Benchmark
+
+Here are the benchmark results for a simple case with multiple PubSub.
+
+```
+$ go test -bench=. -benchmem
+goos: darwin
+goarch: amd64
+pkg: github.com/octu0/nats-pool
+BenchmarkSimpleConnPubSub/NoPool-8         	    5000	    261422 ns/op	  124696 B/op	     177 allocs/op
+BenchmarkSimpleConnPubSub/UsePool-8        	   35050	     29524 ns/op	    4656 B/op	      50 allocs/op
+PASS
+ok  	github.com/octu0/nats-pool	3.829s
 ```
 
 ## License
