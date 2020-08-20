@@ -4,6 +4,8 @@ import (
 	"fmt"
 	natsd "github.com/nats-io/nats-server/server"
 	nats "github.com/nats-io/nats.go"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,8 +38,73 @@ func testStartNatsd(port int) (*natsd.Server, error) {
 	return ns, nil
 }
 
+func BenchmarkSimpleConnPubSub(b *testing.B) {
+	test := func(wg *sync.WaitGroup, nc *nats.Conn, id string, tb *testing.B, end func(nc *nats.Conn)) {
+		defer wg.Done()
+		defer end(nc)
+
+		done := make(chan struct{})
+		subj := "hello.workd" + id
+		sub, err := nc.Subscribe(subj, func(msg *nats.Msg) {
+			if string(msg.Data) != "foobar" {
+				tb.Errorf("msg.Data not != foobar : %s", string(msg.Data))
+			}
+			done <- struct{}{}
+		})
+		if err != nil {
+			tb.Errorf(err.Error())
+			return
+		}
+
+		go nc.Publish(subj, []byte("foobar"))
+		<-done
+		sub.Unsubscribe()
+	}
+	b.Run("NoPool", func(tb *testing.B) {
+		ns, err := testStartNatsd(-1)
+		if err != nil {
+			panic(err)
+		}
+
+		wg := new(sync.WaitGroup)
+		url := fmt.Sprintf("nats://%s", ns.Addr().String())
+		for i := 0; i < tb.N; i += 1 {
+			nc, err := nats.Connect(url)
+			if err != nil {
+				tb.Errorf(err.Error())
+			}
+			wg.Add(1)
+			go test(wg, nc, strconv.Itoa(i), tb, func(_nc *nats.Conn) {
+				_nc.Close()
+			})
+		}
+		wg.Wait()
+	})
+	b.Run("UsePool", func(tb *testing.B) {
+		ns, err := testStartNatsd(-1)
+		if err != nil {
+			panic(err)
+		}
+
+		wg := new(sync.WaitGroup)
+		url := fmt.Sprintf("nats://%s", ns.Addr().String())
+		p := New(100, url)
+		for i := 0; i < tb.N; i += 1 {
+			nc, err := p.Get()
+			if err != nil {
+				tb.Errorf(err.Error())
+			}
+			wg.Add(1)
+			go test(wg, nc, strconv.Itoa(i), tb, func(_nc *nats.Conn) {
+				p.Put(_nc)
+			})
+		}
+		wg.Wait()
+	})
+}
+
 func TestNew(t *testing.T) {
-	ns, err := testStartNatsd(4222)
+	ns, err := testStartNatsd(-1)
 	if err != nil {
 		panic(err)
 	}
@@ -85,7 +152,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestGetPut(t *testing.T) {
-	ns, err := testStartNatsd(4222)
+	ns, err := testStartNatsd(-1)
 	if err != nil {
 		panic(err)
 	}
@@ -153,7 +220,7 @@ func TestGetPut(t *testing.T) {
 }
 func TestPool(t *testing.T) {
 	t.Run("get/conn10", func(tt *testing.T) {
-		ns, err := testStartNatsd(4222)
+		ns, err := testStartNatsd(-1)
 		if err != nil {
 			panic(err)
 		}
@@ -175,7 +242,7 @@ func TestPool(t *testing.T) {
 		}
 	})
 	t.Run("getput/conn10", func(tt *testing.T) {
-		ns, err := testStartNatsd(4222)
+		ns, err := testStartNatsd(-1)
 		if err != nil {
 			panic(err)
 		}
@@ -217,7 +284,7 @@ func TestPool(t *testing.T) {
 	})
 }
 func TestClosedConn(t *testing.T) {
-	ns, err := testStartNatsd(4222)
+	ns, err := testStartNatsd(-1)
 	if err != nil {
 		panic(err)
 	}
@@ -246,7 +313,7 @@ func TestClosedConn(t *testing.T) {
 	}
 }
 func TestLeakSubs(t *testing.T) {
-	ns, err := testStartNatsd(4222)
+	ns, err := testStartNatsd(-1)
 	if err != nil {
 		panic(err)
 	}
