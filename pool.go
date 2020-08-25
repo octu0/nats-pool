@@ -73,6 +73,10 @@ func (p *ConnPool) Get() (*nats.Conn, error) {
 // there is no need to do Close() ahead of time,
 // ConnPool will automatically do a Close() if it cannot be returned to the pool.
 func (p *ConnPool) Put(nc *nats.Conn) (bool, error) {
+	if nc == nil {
+		return false, nil
+	}
+
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
