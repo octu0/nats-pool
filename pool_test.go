@@ -443,6 +443,7 @@ func TestDisconnectAll(t *testing.T) {
 							tt.Errorf(err.Error())
 						}
 						cp.Put(nc)
+						time.Sleep(10 * time.Millisecond) // save high load for ci
 					}
 				}
 			}(ctx, p, boot)
@@ -452,7 +453,7 @@ func TestDisconnectAll(t *testing.T) {
 		time.Sleep(time.Second) // warmimng-up workers
 		for i := 0; i < 100; i += 1 {
 			p.DisconnectAll()
-			time.Sleep(10 * time.Millisecond) // save high load
+			time.Sleep(50 * time.Millisecond) // save high load for ci
 		}
 		cancel()
 	})
