@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"context"
 	"fmt"
 	natsd "github.com/nats-io/nats-server/server"
 	nats "github.com/nats-io/nats.go"
@@ -218,6 +219,7 @@ func TestGetPut(t *testing.T) {
 		}
 	})
 }
+
 func TestPool(t *testing.T) {
 	t.Run("get/conn10", func(tt *testing.T) {
 		ns, err := testStartNatsd(-1)
@@ -283,6 +285,7 @@ func TestPool(t *testing.T) {
 		}
 	})
 }
+
 func TestClosedConn(t *testing.T) {
 	ns, err := testStartNatsd(-1)
 	if err != nil {
@@ -312,6 +315,7 @@ func TestClosedConn(t *testing.T) {
 		t.Errorf("new conn is connected")
 	}
 }
+
 func TestLeakSubs(t *testing.T) {
 	ns, err := testStartNatsd(-1)
 	if err != nil {
@@ -351,4 +355,106 @@ func TestLeakSubs(t *testing.T) {
 	if nc.NumSubscriptions() != 0 {
 		t.Errorf("unscribed")
 	}
+}
+
+func TestDisconnectAll(t *testing.T) {
+	t.Run("newclient", func(tt *testing.T) {
+		ns, err := testStartNatsd(-1)
+		if err != nil {
+			panic(err)
+		}
+		defer ns.Shutdown()
+
+		url := fmt.Sprintf("nats://%s", ns.Addr().String())
+		p := New(10, url)
+
+		ncs := make([]*nats.Conn, 10)
+		for i := 0; i < 10; i += 1 {
+			nc, err := p.Get()
+			if err != nil {
+				tt.Errorf(err.Error())
+			}
+			ncs[i] = nc
+		}
+
+		lastClientId := uint64(0)
+		for _, nc := range ncs {
+			id, err := nc.GetClientID()
+			if err != nil {
+				tt.Errorf(err.Error())
+			}
+			lastClientId = id
+			p.Put(nc)
+		}
+
+		nc1, err := p.Get()
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+		id1, err := nc1.GetClientID()
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+		if lastClientId < id1 {
+			tt.Errorf("use exists conn")
+		}
+		p.Put(nc1)
+
+		p.DisconnectAll()
+
+		nc2, err := p.Get()
+		if err != nil {
+			tt.Errorf(err.Error())
+		}
+		id2, err := nc2.GetClientID()
+		if err != nil {
+			tt.Errorf(err.Error())
+		}
+		p.Put(nc2)
+
+		if id2 <= lastClientId {
+			tt.Errorf("new client")
+		}
+	})
+	t.Run("concurrency", func(tt *testing.T) {
+		// all no error
+
+		ns, err := testStartNatsd(-1)
+		if err != nil {
+			panic(err)
+		}
+		defer ns.Shutdown()
+
+		url := fmt.Sprintf("nats://%s", ns.Addr().String())
+		p := New(100, url)
+		boot := new(sync.WaitGroup)
+		ctx, cancel := context.WithCancel(context.Background())
+		for i := 0; i < 100; i += 1 {
+			boot.Add(1)
+			go func(c context.Context, cp *ConnPool, b *sync.WaitGroup) {
+				b.Done()
+				for {
+					select {
+					case <-c.Done():
+						return
+					default:
+						nc, err := cp.Get()
+						if err != nil {
+							tt.Errorf(err.Error())
+						}
+						cp.Put(nc)
+						time.Sleep(10 * time.Millisecond) // save high load for ci
+					}
+				}
+			}(ctx, p, boot)
+		}
+		boot.Wait()
+
+		time.Sleep(time.Second) // warmimng-up workers
+		for i := 0; i < 100; i += 1 {
+			p.DisconnectAll()
+			time.Sleep(50 * time.Millisecond) // save high load for ci
+		}
+		cancel()
+	})
 }
