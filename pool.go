@@ -1,8 +1,9 @@
 package pool
 
 import (
-	"github.com/nats-io/nats.go"
 	"sync"
+
+	"github.com/nats-io/nats.go"
 )
 
 // ConnPool implements pool of *nats.Conn of a bounded channel
