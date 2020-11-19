@@ -3,21 +3,22 @@ package pool
 import (
 	"context"
 	"fmt"
-	natsd "github.com/nats-io/nats-server/server"
-	nats "github.com/nats-io/nats.go"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
-func testStartNatsd(port int) (*natsd.Server, error) {
-	opts := &natsd.Options{
+func testStartNatsd(port int) (*server.Server, error) {
+	opts := &server.Options{
 		Host:            "127.0.0.1",
 		Port:            port,
 		ClientAdvertise: "127.0.0.1",
 		HTTPPort:        -1,
-		Cluster:         natsd.ClusterOpts{Port: -1},
+		Cluster:         server.ClusterOpts{Port: -1},
 		NoLog:           true,
 		NoSigs:          true,
 		Debug:           false,
@@ -27,14 +28,14 @@ func testStartNatsd(port int) (*natsd.Server, error) {
 		MaxPingsOut:     10,
 		WriteDeadline:   2 * time.Second,
 	}
-	ns, err := natsd.NewServer(opts)
+	ns, err := server.NewServer(opts)
 	if err != nil {
 		return nil, err
 	}
 	go ns.Start()
 
 	if ns.ReadyForConnections(3*time.Second) != true {
-		return nil, fmt.Errorf("natsd startup failure")
+		return nil, fmt.Errorf("natsd server startup failure")
 	}
 	return ns, nil
 }
