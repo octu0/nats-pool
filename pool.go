@@ -1,108 +1,85 @@
 package pool
 
 import (
+	"errors"
+	"strings"
 	"sync"
 
 	"github.com/nats-io/nats.go"
 )
 
-// ConnPool implements pool of *nats.Conn of a bounded channel
+// ConnPool implements pool of *nats.EncodedConn of a bounded channel
 type ConnPool struct {
-	mutex    *sync.RWMutex
-	poolSize int
-	pool     chan *nats.Conn
-	url      string
-	options  []nats.Option
+	mutex   *sync.RWMutex
+	pool    *sync.Pool
+	url     string
+	options []nats.Option
+}
+
+func NewPool(servers []string, user, pass string) *ConnPool {
+	return New(strings.Join(servers, ","), nats.UserInfo(user, pass))
 }
 
 // New create new ConnPool bounded to the given poolSize,
 // with specify the URL string to connect to natsd on url.
 // option is used for nats#Connect when creating pool connections
-func New(poolSize int, url string, options ...nats.Option) *ConnPool {
+func New(url string, options ...nats.Option) *ConnPool {
 	return &ConnPool{
-		mutex:    new(sync.RWMutex),
-		poolSize: poolSize,
-		pool:     make(chan *nats.Conn, poolSize),
-		url:      url,
-		options:  options,
+		mutex: new(sync.RWMutex),
+		pool: &sync.Pool{
+			New: func() any {
+				connect, err := nats.Connect(url, options...)
+				if err != nil {
+					return nil
+				}
+
+				ec, err := nats.NewEncodedConn(connect, nats.GOB_ENCODER)
+				if err != nil {
+					return nil
+				}
+
+				return ec
+			},
+		},
+		url:     url,
+		options: options,
 	}
 }
 
-func (p *ConnPool) connect() (*nats.Conn, error) {
-	return nats.Connect(p.url, p.options...)
-}
+var errGetPoolConnection = errors.New("get conn from pool err")
 
-// DisconnectAll close all connected *nats.Conn connections in pool
-func (p *ConnPool) DisconnectAll() {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	close(p.pool)
-	for nc := range p.pool {
-		nc.Close()
+// Get returns *nats.EncodedConn, if connection is available,
+func (p *ConnPool) Get() (*nats.EncodedConn, error) {
+	conn, ok := p.pool.Get().(*nats.EncodedConn)
+	if !ok {
+		return nil, errGetPoolConnection
 	}
-	p.pool = make(chan *nats.Conn, p.poolSize)
+
+	return conn, nil
 }
 
-// Get returns *nats.Conn, if connection is available,
-// or makes a new connection and returns a value if not.
-// if *nats.Conn is not connected in pool, make new connection in the same way.
-func (p *ConnPool) Get() (*nats.Conn, error) {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
-
-	var nc *nats.Conn
-	var err error
-	select {
-	case nc = <-p.pool:
-		// reuse exists pool
-		if nc.IsConnected() != true {
-			// Close to be sure
-			nc.Close()
-
-			// disconnected conn, create new *nats.Conn
-			nc, err = p.connect()
+// Put puts *nats.EncodedConn back into the pool.
+func (p *ConnPool) Put(ec *nats.EncodedConn) error {
+	if ec.Conn.IsConnected() {
+		if err := ec.Flush(); err != nil {
+			return err
 		}
-	default:
-		// create *nats.Conn
-		nc, err = p.connect()
-	}
-	return nc, err
-}
-
-// Put puts *nats.Conn back into the pool.
-// there is no need to do Close() ahead of time,
-// ConnPool will automatically do a Close() if it cannot be returned to the pool.
-func (p *ConnPool) Put(nc *nats.Conn) (bool, error) {
-	if nc == nil {
-		return false, nil
 	}
 
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
+	p.pool.Put(ec)
+	return nil
+}
 
-	var err error
-	if nc.IsConnected() {
-		err = nc.Flush()
+func (p *ConnPool) Publish(topic string, v interface{}) (err error) {
+	conn, err := p.Get()
+	if err != nil {
+		return err
 	}
 
-	select {
-	case p.pool <- nc:
-		// free capacity
-		return true, err
-	default:
-		// full capacity, discard & disconnect
-		nc.Close()
-		return false, err
+	defer p.Put(conn)
+	if err = conn.Publish(topic, v); err != nil {
+		return err
 	}
+	return nil
 }
 
-// Len returns the number of items currently pooled
-func (p *ConnPool) Len() int {
-	return len(p.pool)
-}
-
-// Cap returns the number of pool capacity
-func (p *ConnPool) Cap() int {
-	return cap(p.pool)
-}
