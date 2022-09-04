@@ -106,7 +106,7 @@ func (p *ConnPool) Put(nc *nats.Conn) (bool, error) {
 	}
 }
 
-// PutEncodec puts *nats.EncodedConn back into pool.
+// PutEncoded puts *nats.EncodedConn back into pool.
 func (p *ConnPool) PutEncoded(ec *nats.EncodedConn) (bool, error) {
 	if ec == nil {
 		return false, nil
