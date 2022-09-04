@@ -15,8 +15,8 @@ type ConnPool struct {
 	options  []nats.Option
 }
 
-// New create new ConnPool bounded to the given poolSize,
-// with specify the URL string to connect to natsd on url.
+// New create new ConnPool bounded to given poolSize,
+// with specify URL to connect to natsd on url.
 // option is used for nats#Connect when creating pool connections
 func New(poolSize int, url string, options ...nats.Option) *ConnPool {
 	return &ConnPool{
@@ -70,7 +70,16 @@ func (p *ConnPool) Get() (*nats.Conn, error) {
 	return nc, err
 }
 
-// Put puts *nats.Conn back into the pool.
+// GetEncoded returns *nats.EncodedConn, the argument must be an Encoder registered with nats.RegisterEncoder.
+func (p *ConnPool) GetEncoded(encType string) (*nats.EncodedConn, error) {
+	conn, err := p.Get()
+	if err != nil {
+		return nil, err
+	}
+	return nats.NewEncodedConn(conn, encType)
+}
+
+// Put puts *nats.Conn back into pool.
 // there is no need to do Close() ahead of time,
 // ConnPool will automatically do a Close() if it cannot be returned to the pool.
 func (p *ConnPool) Put(nc *nats.Conn) (bool, error) {
@@ -95,6 +104,15 @@ func (p *ConnPool) Put(nc *nats.Conn) (bool, error) {
 		nc.Close()
 		return false, err
 	}
+}
+
+// PutEncodec puts *nats.EncodedConn back into pool.
+func (p *ConnPool) PutEncoded(ec *nats.EncodedConn) (bool, error) {
+	if ec == nil {
+		return false, nil
+	}
+
+	return p.Put(ec.Conn)
 }
 
 // Len returns the number of items currently pooled
