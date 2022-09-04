@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -113,6 +114,7 @@ func TestNew(t *testing.T) {
 	defer ns.Shutdown()
 
 	url := fmt.Sprintf("nats://%s", ns.Addr().String())
+
 	t.Run("default", func(tt *testing.T) {
 		p := New(10, url)
 		nc, err := p.Get()
@@ -161,6 +163,7 @@ func TestGetPut(t *testing.T) {
 	defer ns.Shutdown()
 
 	url := fmt.Sprintf("nats://%s", ns.Addr().String())
+
 	t.Run("getput", func(tt *testing.T) {
 		p := New(10, url)
 		nc1, err1 := p.Get()
@@ -458,4 +461,110 @@ func TestDisconnectAll(t *testing.T) {
 		}
 		cancel()
 	})
+}
+
+type TestFoo struct {
+	Id   uint64
+	Name string
+	Data []byte
+	Bar  TestBar
+}
+
+type TestBar struct {
+	Qwerty int
+}
+
+func TestEncoded(t *testing.T) {
+	ns, err := testStartNatsd(-1)
+	if err != nil {
+		panic(err)
+	}
+	defer ns.Shutdown()
+
+	url := fmt.Sprintf("nats://%s", ns.Addr().String())
+	p := New(10, url)
+
+	ec, err := p.GetEncoded(nats.GOB_ENCODER)
+	if err != nil {
+		t.Errorf("no error: %+v", err)
+	}
+
+	done := make(chan struct{})
+	ec.Subscribe("test", func(foo TestFoo) {
+		if foo.Id != 123456 {
+			t.Errorf("expect=123456 actual=%v", foo.Id)
+		}
+		if foo.Name != "helloworld" {
+			t.Errorf("expect=helloworld actual=%v", foo.Name)
+		}
+		if bytes.Equal(foo.Data, []byte{0x0d, 0x0e, 0x0a, 0x0d, 0x0b, 0x0e, 0x0e, 0x0f}) != true {
+			t.Errorf("expect=[]byte(deadbeef) actual=%v", foo.Data)
+		}
+		if foo.Bar.Qwerty != 101 {
+			t.Errorf("expect=101 actual=%v", foo.Bar.Qwerty)
+		}
+		close(done)
+	})
+
+	go ec.Publish("test", TestFoo{
+		Id:   123456,
+		Name: "helloworld",
+		Data: []byte{0x0d, 0x0e, 0x0a, 0x0d, 0x0b, 0x0e, 0x0e, 0x0f},
+		Bar: TestBar{
+			Qwerty: 101,
+		},
+	})
+
+	select {
+	case <-done:
+		// ok
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("timeout. not decoded")
+	}
+
+	ok, err := p.PutEncoded(ec)
+	if err != nil {
+		t.Errorf("no error: %+v", err)
+	}
+	if ok != true {
+		t.Errorf("free capacity")
+	}
+}
+
+func TestZeroSizePool(t *testing.T) {
+	ns, err := testStartNatsd(-1)
+	if err != nil {
+		panic(err)
+	}
+	defer ns.Shutdown()
+
+	url := fmt.Sprintf("nats://%s", ns.Addr().String())
+	p := New(0, url)
+
+	n := make([]*nats.Conn, 100)
+	for i := 0; i < 100; i += 1 {
+		nc, err := p.Get()
+		if err != nil {
+			t.Errorf("*nats.Conn can be acquired even with size=0 %+v", err)
+		}
+		n[i] = nc
+	}
+
+	if ns.NumClients() != 100 {
+		t.Errorf("server client expect=100 actual=%d", ns.NumClients())
+	}
+
+	ok, err := p.Put(n[0])
+	if err != nil {
+		t.Errorf("no error %+v", err)
+	}
+	if ok {
+		t.Errorf("not returned to pool because there is no capacity available in pool")
+	}
+
+	time.Sleep(50 * time.Millisecond) // wait nc closed for ci
+
+	if ns.NumClients() != 99 {
+		t.Errorf("if there is no capacity available, connection closed with Put() actual=%d", ns.NumClients())
+	}
 }

@@ -2,5 +2,5 @@ package pool
 
 // Version of release
 const (
-	Version string = "1.0.6"
+	Version string = "1.0.7"
 )
